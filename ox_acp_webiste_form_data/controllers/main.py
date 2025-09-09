@@ -38,7 +38,7 @@ class WebsiteFormController(http.Controller):
 
             # 1. Server-side validation
             required_fields = [
-                'full_name', 'email', 'phone', 'x_studio_gender',
+                'full_name', 'email', 'phone', 'gender',
                 'profession', 'place_of_birth', 'nationality_id', 'date_of_birth'
             ]
             for field in required_fields:
@@ -62,7 +62,7 @@ class WebsiteFormController(http.Controller):
                     'name': post.get('full_name'),
                     'email': post.get('email'),
                     'phone': post.get('phone'),
-                    'x_studio_gender': post.get('x_studio_gender'),
+                    'gender': post.get('gender'),
                     'profession': post.get('profession'),
                     'place_of_birth': post.get('place_of_birth'),
                     'country_id': int(post.get('nationality_id')),
