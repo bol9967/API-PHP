@@ -17,21 +17,25 @@ class AccountMove(models.Model):
             else:
                 rec.invoice_edit_sequence = True
 
-    def _sync_invoice_sequence_related_fields(self, new_name):
-        """Sync sequence changes to payment_reference and AR/AP line labels."""
+    def _sync_invoice_sequence_related_fields(self, old_name, new_name):
+        """
+        Sync changes for sequence edits.
+        - Customer Invoices / Refunds: update payment_reference + AR labels.
+        - Vendor Bills / Refunds: only update chatter.
+        """
         self.ensure_one()
 
-        # Update payment_reference
-        self.payment_reference = new_name
+        if self.move_type in ('out_invoice', 'out_refund'):
+            # Customer Invoices/Refunds → update refs & labels
+            self.payment_reference = new_name
+            # Update journal item labels (only receivable/payable lines)
+            self.line_ids.filtered(
+                lambda l: l.account_id.account_type in ('asset_receivable', 'liability_payable')
+            ).write({'name': new_name})
 
-        # Update journal item labels (only receivable/payable lines)
-        self.line_ids.filtered(
-            lambda l: l.account_id.account_type in ('asset_receivable', 'liability_payable')
-        ).write({'name': new_name})
-
-        # Optional: log in chatter
+        # Always log the change in chatter
         self.message_post(
-            body=f"Invoice sequence updated to <b>{new_name}</b> by {self.env.user.name}"
+            body=f"Sequence updated from <b>{old_name}</b> to <b>{new_name}</b> by {self.env.user.name}"
         )
 
     def write(self, vals):
@@ -43,28 +47,33 @@ class AccountMove(models.Model):
             ])
             if existing:
                 raise ValidationError(
-                    f'The {vals["name"]} Sequence Number already exists'
+                    f'The {vals['name']} Sequence Number already exists'
                 )
 
-        # 🚨 Block detaching Sale Order link
+        # 🚨 Block detaching origin (SO/PO link)
         if 'invoice_origin' in vals:
-            vals.pop('invoice_origin')  # never allow manual override
+            vals.pop('invoice_origin')
         if 'invoice_ids' in vals:
-            vals.pop('invoice_ids')  # block unlinking from SO
+            vals.pop('invoice_ids')
 
-        # Keep original sale order link safe
-        linked_sale_orders = {move.id: move.invoice_origin for move in self if move.invoice_origin}
+        # Keep original origins safe
+        linked_origins = {move.id: move.invoice_origin for move in self if move.invoice_origin}
+
+        # Track old names for chatter logs
+        old_names = {move.id: move.name for move in self}
 
         res = super(AccountMove, self).write(vals)
 
-        # Restore sale order link if needed
+        # Restore origin if cleared
         for move in self:
-            if move.id in linked_sale_orders and not move.invoice_origin:
-                move.invoice_origin = linked_sale_orders[move.id]
+            if move.id in linked_origins and not move.invoice_origin:
+                move.invoice_origin = linked_origins[move.id]
 
-        # Sync other fields when sequence changed
+        # Sync after sequence edit
         if 'name' in vals:
             for move in self:
-                move._sync_invoice_sequence_related_fields(move.name)
+                old_name = old_names.get(move.id)
+                if old_name and old_name != move.name:
+                    move._sync_invoice_sequence_related_fields(old_name, move.name)
 
         return res
