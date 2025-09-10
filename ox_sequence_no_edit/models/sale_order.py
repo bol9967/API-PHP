@@ -1,4 +1,4 @@
-from odoo import models, fields, api
+from odoo import models, fields
 from odoo.exceptions import ValidationError
 
 
@@ -29,7 +29,7 @@ class SaleOrder(models.Model):
                     f'The {vals["name"]} Sequence Number already exists'
                 )
 
-        # Keep old names for chatter + invoice updates
+        # Keep old names for chatter + invoice/picking updates
         old_names = {rec.id: rec.name for rec in self}
 
         res = super(SaleOrder, self).write(vals)
@@ -41,9 +41,8 @@ class SaleOrder(models.Model):
                 if old_name and old_name != so.name:
                     # 1️⃣ Log on Sale Order
                     so.message_post(
-                        body=f"Sale Order sequence updated "
-                             f"from <b>{old_name}</b> to <b>{so.name}</b> "
-                             f"by {self.env.user.name}"
+                        body=f"Sale Order sequence updated from <strong>{old_name}</strong> "
+                            f"to <strong>{so.name}</strong> by {self.env.user.name}"
                     )
 
                     # 2️⃣ Update linked Customer Invoices/Refunds
@@ -53,12 +52,24 @@ class SaleOrder(models.Model):
                     ])
                     if moves:
                         moves.write({'invoice_origin': so.name})
-                        # Log on each invoice/refund
                         for move in moves:
                             move.message_post(
-                                body=f"Invoice Origin updated from <b>{old_name}</b> "
-                                     f"to <b>{so.name}</b> due to Sale Order sequence change "
-                                     f"by {self.env.user.name}"
+                                body=f"Invoice Origin updated from <strong>{old_name}</strong> "
+                                    f"to <strong>{so.name}</strong> due to Sale Order sequence change "
+                                    f"by {self.env.user.name}"
+                            )
+
+                    # 3️⃣ Update linked Stock Pickings
+                    pickings = self.env['stock.picking'].search([
+                        ('origin', '=', old_name)
+                    ])
+                    if pickings:
+                        pickings.write({'origin': so.name})
+                        for picking in pickings:
+                            picking.message_post(
+                                body=f"Origin updated from <strong>{old_name}</strong> "
+                                    f"to <strong>{so.name}</strong> due to Sale Order sequence change "
+                                    f"by {self.env.user.name}"
                             )
 
         return res
