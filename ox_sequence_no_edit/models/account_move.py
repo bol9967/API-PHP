@@ -1,9 +1,36 @@
-from odoo import models, fields
+from odoo import models, fields, api
 from odoo.exceptions import ValidationError
 
-
 class AccountMove(models.Model):
-    _inherit = 'account.move'
+    _inherit = "account.move"
+
+    invoice_origin = fields.Char(
+        compute="_compute_invoice_origin",
+        store=True,
+        readonly=False
+    )
+
+    @api.depends(
+        'invoice_line_ids.sale_line_ids.order_id.name',
+        'invoice_line_ids.purchase_line_id.order_id.name'
+    )
+    def _compute_invoice_origin(self):
+        for move in self:
+            origins = []
+
+            # Collect Sale Orders (for customer invoices/refunds)
+            sale_orders = move.invoice_line_ids.mapped('sale_line_ids.order_id.name')
+            if sale_orders:
+                origins.extend(sale_orders)
+
+            # Collect Purchase Orders (for vendor bills/refunds)
+            purchase_orders = move.invoice_line_ids.mapped('purchase_line_id.order_id.name')
+            if purchase_orders:
+                origins.extend(purchase_orders)
+
+            if origins:
+                # Remove duplicates while preserving order
+                move.invoice_origin = ', '.join(dict.fromkeys(origins))
 
     invoice_edit_sequence = fields.Boolean(
         string='Account Invoice Edit Sequence',
